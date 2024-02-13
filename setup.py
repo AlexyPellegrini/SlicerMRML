@@ -140,9 +140,9 @@ def compute_cmake_args(source_dir: str, fetch_module_path: Path = current_file_d
         f'-DPython3_EXECUTABLE:FILEPATH={python3_executable}',
         "-DVTK_MODULE_SUPERBUILD:BOOL=ON",
         "-DVTK_MODULE_EXTERNAL_PROJECT_DEPENDENCIES:STRING=teem;LibArchive;OpenSSL;curl", #ITK;DCMTK
-        "-DITK_DIR:PATH=C:/itk-build",
-        "-DDCMTK_DIR:PATH=C:/dcmtk-build",
-        "-DVTK_MODULE_EXTERNAL_PROJECT_CMAKE_CACHE_ARGS:STRING=VTK_USE_X;VTK_USE_COCOA;ITK_DIR;DCMTK_DIR",
+        #"-DITK_DIR:PATH=C:/itk-build",
+        #"-DDCMTK_DIR:PATH=C:/dcmtk-build",
+        "-DVTK_MODULE_EXTERNAL_PROJECT_CMAKE_CACHE_ARGS:STRING=VTK_USE_X;VTK_USE_COCOA",
         '-DVTK_WHEEL_BUILD:BOOL=ON',
         "-DSlicer_BUILD_DICOM_SUPPORT:BOOL=ON"
         '-S', vtk_external_module_path,
