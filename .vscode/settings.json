@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.wrap": "cmake",
+        "*.cmake.in": "cmake",
+        "*.in": "cpp"
+    }
+}

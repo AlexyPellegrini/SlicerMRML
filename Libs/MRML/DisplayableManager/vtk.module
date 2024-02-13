@@ -1,0 +1,12 @@
+NAME
+  VTK::MRMLDisplayableManager
+LIBRARY_NAME
+  vtkMRMLDisplayableManager
+DEPENDS
+  VTK::MRMLLogic
+  VTK::RenderingAnnotation
+TEST_DEPENDS
+  VTK::TestingCore
+  VTK::TestingRendering
+DESCRIPTION
+  "vtkMRMLDisplayableManager"

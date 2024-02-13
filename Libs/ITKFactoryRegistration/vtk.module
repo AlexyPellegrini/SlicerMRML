@@ -1,0 +1,8 @@
+NAME
+  VTK::ITKFactoryRegistration
+LIBRARY_NAME
+  vtkITKFactoryRegistration
+DEPENDS
+  VTK::CommonCore
+DESCRIPTION
+  "vtkITKFactoryRegistration"

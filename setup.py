@@ -1,0 +1,194 @@
+from skbuild import setup
+from pathlib import Path
+import os
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import sys
+
+current_file_dir = Path(__file__).parent.resolve()
+vtk_version = "9.3.0"
+
+
+def download_vtk_wheel_sdk(
+    fetch_module_path: Path, 
+    install_path:Path,
+    default_sdk_version: str) -> str:
+    # Automatically download the VTK wheel SDK based upon the current platform
+    # and python version.
+    # If the download location changes, we may need to change the logic here.
+    # Returns the path to the unpacked SDK.
+
+    base_url = 'https://vtk.org/files/wheel-sdks/'
+    prefix = 'vtk-wheel-sdk'
+    # The user can set the sdk version via an environment variable
+    sdk_version = os.getenv('VTK_WHEEL_SDK_VERSION', default_sdk_version)
+    py_version_short = ''.join(map(str, sys.version_info[:2]))
+
+    py_version = f'cp{py_version_short}-cp{py_version_short}'
+    if sys.version_info[:2] < (3, 8):
+        # Need to add 'm' at the end
+        py_version += 'm'
+
+    platform_suffixes = {
+        'linux': 'manylinux_2_17_x86_64.manylinux2014_x86_64',
+        'darwin': 'macosx_10_10_x86_64',
+        'win32': 'win_amd64',
+    }
+
+    if sys.platform not in platform_suffixes:
+        raise NotImplementedError(sys.platform)
+
+    platform_suffix = platform_suffixes[sys.platform]
+
+    if sys.platform == 'darwin':
+        is_arm = (
+            platform.machine() == 'arm64' or
+            # ARCHFLAGS: see https://github.com/pypa/cibuildwheel/discussions/997
+            os.getenv('ARCHFLAGS') == '-arch arm64'
+        )
+        if is_arm:
+            # It's an arm64 build
+            platform_suffix = 'macosx_11_0_arm64'
+
+    dir_name = f'{prefix}-{sdk_version}-{py_version}-{platform_suffix}'
+    default_install_path = Path('.').resolve() / f'_deps/{dir_name}'
+    
+    if install_path is None:
+        install_path = default_install_path
+
+    if install_path.exists():
+        # It already exists, just return it
+        return install_path.as_posix()
+
+    # Need to download it
+    full_name = f'{prefix}-{sdk_version}-{py_version}-{platform_suffix}.tar.xz'
+    url = f'{base_url}{full_name}'
+
+    script_path = str(fetch_module_path / 'FetchFromUrl.cmake')
+
+    cmd = [
+        'cmake',
+        f'-DFETCH_FROM_URL_PROJECT_NAME={prefix}',
+        f'-DFETCH_FROM_URL_INSTALL_LOCATION={install_path.as_posix()}',
+        f'-DFETCH_FROM_URL_URL={url}',
+        '-P', script_path,
+    ]
+    subprocess.check_call(cmd)
+
+    return install_path.as_posix()
+
+
+def download_vtk_external_module(
+    fetch_module_path: Path,
+    external_module_path: Path) -> str:
+    # Automatically download the VTKExternalModule repository.
+    # Returns the path to the VTKExternalModule directory.
+    if external_module_path.exists():
+        # It must have already been downloaded. Just return it.
+        return external_module_path.as_posix()
+
+    # Run the script to download it
+    script_path = str(fetch_module_path / 'FetchVTKExternalModule.cmake')
+    cmd = [
+        'cmake',
+        '-DFETCH_VTKExternalModule_INSTALL_LOCATION=' +
+        external_module_path.as_posix(),
+        '-P', script_path,
+    ]
+    subprocess.check_call(cmd)
+    
+    return external_module_path.as_posix()
+
+def compute_cmake_args(source_dir: str, fetch_module_path: Path = current_file_dir):
+    vtk_wheel_sdk_path = os.getenv('VTK_WHEEL_SDK_PATH')
+    if vtk_wheel_sdk_path is None:
+        install_path_var = os.getenv('VTK_WHEEL_SDK_INSTALL_PATH')
+        install_path = None if install_path_var is None else Path(install_path_var)
+        vtk_wheel_sdk_path = download_vtk_wheel_sdk(fetch_module_path, install_path, vtk_version)
+
+    # Find the cmake dir
+    cmake_glob = list(Path(vtk_wheel_sdk_path).glob('**/headers/cmake'))
+    if len(cmake_glob) != 1:
+        raise Exception('Unable to find cmake directory')
+
+    vtk_wheel_sdk_cmake_path = cmake_glob[0]
+
+    vtk_external_module_path = os.getenv('VTK_EXTERNAL_MODULE_PATH')
+    if vtk_external_module_path is None:
+        # If it was not provided, clone it into a temporary directory
+        # Since we are using pyproject.toml, it will get removed automatically
+        default_external_module_path = Path('.').resolve() / '_deps/VTKExternalModule';
+        vtk_external_module_path = download_vtk_external_module(
+            fetch_module_path, default_external_module_path)
+
+    python3_executable = os.getenv('Python3_EXECUTABLE')
+    if python3_executable is None:
+        python3_executable = shutil.which('python')
+
+    if python3_executable is None:
+        msg = 'Unable find python executable, please set Python3_EXECUTABLE'
+        raise Exception(msg)
+
+    cmake_args = [
+        '-DVTK_MODULE_NAME:STRING=MRMLDisplayableManager',
+        f'-DVTK_MODULE_SOURCE_DIR:PATH={source_dir}',
+        f'-DVTK_MODULE_CMAKE_MODULE_PATH:PATH={vtk_wheel_sdk_cmake_path}',
+        f'-DVTK_DIR:PATH={vtk_wheel_sdk_cmake_path}',
+        '-DCMAKE_INSTALL_LIBDIR:STRING=lib',
+        f'-DPython3_EXECUTABLE:FILEPATH={python3_executable}',
+        "-DVTK_MODULE_SUPERBUILD:BOOL=ON",
+        "-DVTK_MODULE_EXTERNAL_PROJECT_DEPENDENCIES:STRING=teem;LibArchive;OpenSSL;curl", #ITK;DCMTK
+        "-DITK_DIR:PATH=C:/itk-build",
+        "-DDCMTK_DIR:PATH=C:/dcmtk-build",
+        "-DVTK_MODULE_EXTERNAL_PROJECT_CMAKE_CACHE_ARGS:STRING=VTK_USE_X;VTK_USE_COCOA;ITK_DIR;DCMTK_DIR",
+        '-DVTK_WHEEL_BUILD:BOOL=ON',
+        "-DSlicer_BUILD_DICOM_SUPPORT:BOOL=ON"
+        '-S', vtk_external_module_path,
+    ]
+
+    if sys.platform == 'linux':
+        # We currently have to add this for the render window to get compiled
+        cmake_args.append('-DVTK_USE_X:BOOL=ON')
+
+        if os.getenv('LINUX_VTK_LOOKING_GLASS_USE_COMPATIBLE_ABI') == '1':
+            # If building locally, it is necessary to set this in order to
+            # produce a wheel that can be used. Otherwise, the VTK symbols
+            # will not match those in the actual VTK wheel. UGH.
+            cmake_args.append('-DCMAKE_CXX_FLAGS=-D_GLIBCXX_USE_CXX11_ABI=0')
+
+    elif sys.platform == 'darwin':
+        # We currently have to add this for the render window to get compiled
+        cmake_args.append('-DVTK_USE_COCOA:BOOL=ON')
+
+        if os.getenv('ARCHFLAGS') == '-arch arm64':
+            # We are cross-compiling and need to set CMAKE_SYSTEM_NAME as well.
+            # NOTE: we haven't actually succeeded in cross-compiling this module.
+            cmake_args.append('-DCMAKE_SYSTEM_NAME=Darwin')
+
+    return cmake_args
+
+cmake_args = compute_cmake_args(current_file_dir, current_file_dir)
+
+setup(
+    name='vtk-slicer',
+    description='',
+    long_description='',
+    url='',
+    author='Slicer developers',
+    license='MIT',
+    classifiers=[
+        'Development Status :: 3 - Alpha',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3',
+    ],
+    keywords='',
+    packages=['vtkmodules'],
+    package_dir={'vtkmodules': 'lib/vtkmodules'},
+    cmake_args=cmake_args,
+    install_requires=[f'vtk=={vtk_version}'],
+)
+
+# pip install delvewheel
+# delvewheel repair --add-path ".\_skbuild\win-amd64-3.11\cmake-install\lib\vtkmodules;C:\dev\slicerlib\SlicerLib\_deps\vtk-wheel-sdk-9.3.0-cp311-cp311-win_amd64\bin;C:\dev\slicerlib\SlicerLib\_skbuild\win-amd64-3.11\cmake-build\LibArchive-build\bin;C:\dev\slicerlib\SlicerLib\_skbuild\win-amd64-3.11\cmake-build\OpenSSL-install\Release\bin;C:\dev\slicerlib\SlicerLib\_skbuild\win-amd64-3.11\cmake-build\teem-build\bin;" .\vtk_itk-5.6.1.dev69+g21a0564936.d20240208-cp311-cp311-win_amd64.whl
